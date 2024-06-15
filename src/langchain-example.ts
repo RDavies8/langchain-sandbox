@@ -1,83 +1,40 @@
-import { ChatOllama } from "@langchain/community/chat_models/ollama";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
-
-import { MemoryVectorStore } from "langchain/vectorstores/memory";
-
-import { CheerioWebBaseLoader } from "@langchain/community/document_loaders/web/cheerio";
-import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
-
-import { OllamaEmbeddings } from "@langchain/community/embeddings/ollama";
-
-import { createStuffDocumentsChain } from "langchain/chains/combine_documents";
-
-
-import { createRetrievalChain } from "langchain/chains/retrieval";
-
+import { LLM, getChatModel } from './chat-model.js'
+import { RunnableSequence } from "@langchain/core/runnables";
+import { EventSchema, Distance } from "schema/event.js";
 
 import 'dotenv/config'
+import { fetchText } from "retrieval.js";
 
-
-
-const getRetriever = async () => {
-
-  const loader = new CheerioWebBaseLoader(
-    "https://docs.smith.langchain.com/user_guide"
-  );
-
-  const docs = await loader.load();
-
-  const splitter = new RecursiveCharacterTextSplitter();
-  const splitDocs = await splitter.splitDocuments(docs);
-
-  const embeddings = new OllamaEmbeddings({
-    model: "nomic-embed-text",
-    maxConcurrency: 5,
-  });
-
-  const vectorstore = await MemoryVectorStore.fromDocuments(
-    splitDocs,
-    embeddings
-  );
-
-  const retriever = vectorstore.asRetriever();
-
-  return retriever;
-}
-
+const URL = "https://runsignup.com/Race/FL/Tallahassee/JR6222024"
 
 export const run = async () => {
 
 
-  const chatModel = new ChatOllama({
-    baseUrl: "http://localhost:11434", // Default value
-    model: "gemma:latest",
-  });
+  const chatModel = getChatModel(LLM.OpenAI);
 
 
-  const prompt =
-    ChatPromptTemplate.fromTemplate(`Answer the following question based only on the provided context:
-      <context>
-      {context}
-      </context>
+  // Define a custom prompt to provide instructions and any additional context.
+  // 1) You can add examples into the prompt template to improve extraction quality
+  // 2) Introduce additional parameters to take context into account (e.g., include metadata
+  //    about the document from which the text was extracted.)
+  const SYSTEM_PROMPT_TEMPLATE = `You are an expert extraction algorithm pulling information from event webpages.
+    Only extract relevant information from the text.
+    If you do not know the value of an attribute asked to extract, you may omit the attribute's value.`;
 
-      Question: {input}`);
+  const promptTemplate = ChatPromptTemplate.fromMessages([
+    ["system", SYSTEM_PROMPT_TEMPLATE],
+    // Please see the how-to about improving performance with
+    // reference examples.
+    // new MessagesPlaceholder("examples"),
+    ["human", "{text}"],
+  ]);
 
-  const documentChain = await createStuffDocumentsChain({
-    llm: chatModel,
-    prompt,
-  });
+  const text = await fetchText(URL);
 
+  const chain = RunnableSequence.from([promptTemplate, chatModel.withStructuredOutput(EventSchema)]);
 
-  const retriever = await getRetriever();
+  const result = await chain.invoke({ text });
 
-  const retrievalChain = await createRetrievalChain({
-    combineDocsChain: documentChain,
-    retriever,
-  });
-
-  const result = await retrievalChain.invoke({
-    input: "what is LangSmith?",
-  });
-  
-  console.log(result.answer);
+  console.log(result);
 };
