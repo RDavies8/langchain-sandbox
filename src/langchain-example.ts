@@ -1,18 +1,16 @@
 import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { LLM, getChatModel } from './chat-model.js'
+import { LLM, getChatModel } from "./chat-model.js";
 import { RunnableSequence } from "@langchain/core/runnables";
-import { EventSchema, Distance } from "schema/event.js";
+import { EventSchema } from "schema/event.js";
+import {} from "langchain/output_parsers";
 
-import 'dotenv/config'
+import "dotenv/config";
 import { fetchText } from "retrieval.js";
 
-const URL = "https://runsignup.com/Race/FL/Tallahassee/JR6222024"
+const URL = "https://runsignup.com/Race/FL/Tallahassee/JR6222024";
 
 export const run = async () => {
-
-
   const chatModel = getChatModel(LLM.OpenAI);
-
 
   // Define a custom prompt to provide instructions and any additional context.
   // 1) You can add examples into the prompt template to improve extraction quality
@@ -20,7 +18,8 @@ export const run = async () => {
   //    about the document from which the text was extracted.)
   const SYSTEM_PROMPT_TEMPLATE = `You are an expert extraction algorithm pulling information from event webpages.
     Only extract relevant information from the text.
-    If you do not know the value of an attribute asked to extract, you may omit the attribute's value.`;
+    If you do not know the value of an attribute asked to extract, you may omit the attribute's value.
+    Be sure to pay close attention to the allowed enum values.`;
 
   const promptTemplate = ChatPromptTemplate.fromMessages([
     ["system", SYSTEM_PROMPT_TEMPLATE],
@@ -32,7 +31,12 @@ export const run = async () => {
 
   const text = await fetchText(URL);
 
-  const chain = RunnableSequence.from([promptTemplate, chatModel.withStructuredOutput(EventSchema)]);
+  const chain = RunnableSequence.from([
+    promptTemplate,
+    chatModel
+      .withStructuredOutput(EventSchema)
+      .withRetry({ stopAfterAttempt: 2, onFailedAttempt: console.log }),
+  ]);
 
   const result = await chain.invoke({ text });
 
